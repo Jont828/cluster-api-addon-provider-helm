@@ -22,17 +22,26 @@ import (
 
 	"github.com/Azure/go-autorest/autorest/to"
 	"github.com/pkg/errors"
+	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	ctrlClient "sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
+	"sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
+	"cluster-api-addon-helm/api/v1beta1"
 	addonsv1beta1 "cluster-api-addon-helm/api/v1beta1"
 	"cluster-api-addon-helm/internal"
 
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
+	"sigs.k8s.io/cluster-api/controllers/remote"
+	"sigs.k8s.io/cluster-api/util"
 	"sigs.k8s.io/cluster-api/util/patch"
 	// "sigs.k8s.io/cluster-api/cmd/clusterctl/client/cluster"
 	// "sigs.k8s.io/cluster-api/cmd/clusterctl/client/config"
@@ -42,6 +51,9 @@ import (
 type HelmChartProxyReconciler struct {
 	ctrlClient.Client
 	Scheme *runtime.Scheme
+
+	controller controller.Controller
+	Tracker    *remote.ClusterCacheTracker
 }
 
 const finalizer = "addons.cluster.x-k8s.io"
@@ -175,39 +187,150 @@ func (r *HelmChartProxyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *HelmChartProxyReconciler) SetupWithManager(mgr ctrl.Manager) error {
-	return ctrl.NewControllerManagedBy(mgr).
+	controller, err := ctrl.NewControllerManagedBy(mgr).
 		For(&addonsv1beta1.HelmChartProxy{}).
-		// Watches(
-		// 	&source.Kind{Type: &v1beta1.HelmChartProxy{}},
-		// 	handler.EnqueueRequestsFromMapFunc(r.findProxyForSecret),
-		// 	builder.WithPredicates(predicate.ResourceVersionChangedPredicate{}),
-		// ).
-		Complete(r)
+		Build(r)
+
+	if err != nil {
+		return errors.Wrap(err, "failed setting up with a controller manager")
+	}
+
+	r.controller = controller
+
+	log := ctrl.Log.WithName("remote").WithName("ClusterCacheTracker")
+	tracker, err := remote.NewClusterCacheTracker(
+		mgr,
+		remote.ClusterCacheTrackerOptions{
+			Log:     &log,
+			Indexes: remote.DefaultIndexes,
+		},
+	)
+
+	if err != nil {
+		return errors.Wrap(err, "failed to create cluster cache tracker")
+	}
+	r.Tracker = tracker
+
+	return nil
 }
 
-// func (r *HelmChartProxyReconciler) findProxyForSecret(obj client.Object) []reconcile.Request {
-// 	log := ctrl.LoggerFrom(context.TODO())
-// 	// helmChartProxies := &v1beta1.HelmChartProxyList{}
-// 	log.V(2).Info("Finding HelmChartProxy for object", "object", obj.GetName())
-// 	// log.V(2).Info("Finding HelmChartProxy for secret", "secret", secret.GetName())
-// 	return []reconcile.Request{}
-// 	// labels := secret.GetLabels()
-// 	// err := r.List(context.TODO(), helmChartProxies, ctrlClient.MatchingLabels(labels))
-// 	// if err != nil {
-// 	// 	return []reconcile.Request{}
-// 	// }
+func (r *HelmChartProxyReconciler) watchClusterSecrets(ctx context.Context, cluster *clusterv1.Cluster) error {
+	// If there is no tracker, don't watch remote nodes
+	log := log.FromContext(context.TODO())
+	log.Info("Watching cluster secrets on cluster", "cluster", cluster.Name)
+	if r.Tracker == nil {
+		log.Info("Tracker is nil, returning early")
+		return nil
+	}
 
-// 	// requests := make([]reconcile.Request, len(helmChartProxies.Items))
-// 	// for i, item := range helmChartProxies.Items {
-// 	// 	requests[i] = reconcile.Request{
-// 	// 		NamespacedName: types.NamespacedName{
-// 	// 			Name:      item.GetName(),
-// 	// 			Namespace: item.GetNamespace(),
-// 	// 		},
-// 	// 	}
-// 	// }
-// 	// return requests
-// }
+	return r.Tracker.Watch(ctx, remote.WatchInput{
+		Name:         "proxy-watchClusterSecrets",
+		Cluster:      util.ObjectKey(cluster),
+		Watcher:      r.controller,
+		Kind:         &corev1.Secret{},
+		EventHandler: handler.EnqueueRequestsFromMapFunc(r.secretToProxy),
+	})
+}
+
+func (r *HelmChartProxyReconciler) secretToProxy(obj client.Object) []reconcile.Request {
+	log := log.FromContext(context.TODO())
+
+	// TODO: how can we figure out what cluster the secret came from? Should we make a Reconciler() for each cluster
+	// that runs under the main Reconciler()?
+
+	secret, ok := obj.(*corev1.Secret)
+	if !ok {
+		panic(fmt.Sprintf("Expected a Secret but got a %T", obj))
+	}
+
+	labels := secret.GetLabels()
+	if owner, ok := labels["owner"]; !ok || owner != "helm" {
+		// log.Info("Secret is not owned by helm, returning early")
+		return nil
+	}
+	log.Info("Got secret with name", "secret", secret.Name)
+
+	releaseName := labels["release"]
+
+	helmChartProxyList := &v1beta1.HelmChartProxyList{}
+	if err := r.Client.List(context.TODO(), helmChartProxyList); err != nil {
+		log.Info("Failure to list HelmChartProxy", "error", err)
+		return nil
+	}
+
+	var helmChartProxies []*v1beta1.HelmChartProxy
+	for _, helmChartProxy := range helmChartProxyList.Items {
+		log.Info("Secret resolved to HelmChartProxy", "helmChartProxy", helmChartProxy.Name)
+		if helmChartProxy.Spec.ReleaseName == releaseName {
+			helmChartProxies = append(helmChartProxies, &helmChartProxy)
+		}
+	}
+	// TODO: make sure the helmChartProxy label selector matches the cluster the secret is on
+
+	if len(helmChartProxies) == 0 {
+		log.Info("No HelmChartProxy found for secret", "secret", secret.Name)
+		return nil
+	} else if len(helmChartProxies) > 1 {
+		log.Info("Multiple HelmChartProxies found for secret", "secret", secret.Name)
+		return nil
+	}
+	// Should be deterministic, but just in case
+
+	// TODO: how to figure out which secret has not been seen?
+
+	// Idea: in the HelmChartProxy status, store a map of the installed cluster to its release revision/version.
+	// That way we can do a reverse look up.
+
+	return []reconcile.Request{
+		{NamespacedName: util.ObjectKey(helmChartProxies[0])},
+	}
+	// // Match by clusterName when the node has the annotation.
+	// if clusterName, ok := secret.GetAnnotations()[clusterv1.ClusterNameAnnotation]; ok {
+	// 	filters = append(filters, client.MatchingLabels{
+	// 		clusterv1.ClusterLabelName: clusterName,
+	// 	})
+	// }
+
+	// // Match by namespace when the secret has the annotation.
+	// if namespace, ok := secret.GetAnnotations()[clusterv1.ClusterNamespaceAnnotation]; ok {
+	// 	filters = append(filters, client.InNamespace(namespace))
+	// }
+
+	// // Match by nodeName and status.nodeRef.name.
+	// machineList := &clusterv1.MachineList{}
+	// if err := r.Client.List(
+	// 	context.TODO(),
+	// 	machineList,
+	// 	append(filters, client.MatchingFields{index.MachineNodeNameField: secret.Name})...); err != nil {
+	// 	return nil
+	// }
+
+	// // There should be exactly 1 Machine for the secret.
+	// if len(machineList.Items) == 1 {
+	// 	return []reconcile.Request{{NamespacedName: util.ObjectKey(&machineList.Items[0])}}
+	// }
+
+	// // Otherwise let's match by providerID. This is useful when e.g the NodeRef has not been set yet.
+	// // Match by providerID
+	// nodeProviderID, err := noderefutil.NewProviderID(secret.Spec.ProviderID)
+	// if err != nil {
+	// 	return nil
+	// }
+	// machineList = &clusterv1.MachineList{}
+	// if err := r.Client.List(
+	// 	context.TODO(),
+	// 	machineList,
+	// 	append(filters, client.MatchingFields{index.MachineProviderIDField: nodeProviderID.IndexKey()})...); err != nil {
+	// 	return nil
+	// }
+
+	// // There should be exactly 1 Machine for the node.
+	// if len(machineList.Items) == 1 {
+	// 	return []reconcile.Request{{NamespacedName: util.ObjectKey(&machineList.Items[0])}}
+	// }
+
+	return nil
+}
 
 // reconcileNormal...
 func (r *HelmChartProxyReconciler) reconcileNormal(ctx context.Context, helmChartProxy *addonsv1beta1.HelmChartProxy, clusters []clusterv1.Cluster) error {
@@ -234,6 +357,11 @@ func (r *HelmChartProxyReconciler) reconcileCluster(ctx context.Context, helmCha
 	log := ctrl.LoggerFrom(ctx)
 
 	log.V(2).Info("Reconciling HelmChartProxy on cluster", "HelmChartProxy", helmChartProxy.Name, "cluster", cluster.Name)
+
+	if err := r.watchClusterSecrets(ctx, cluster); err != nil {
+		log.Error(err, "error watching secrets on target cluster", "cluster", cluster.Name)
+		return err
+	}
 
 	releases, err := internal.ListHelmReleases(ctx, kubeconfigPath)
 	if err != nil {
