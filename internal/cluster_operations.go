@@ -64,6 +64,10 @@ func WriteClusterKubeconfigToFile(ctx context.Context, cluster *clusterv1.Cluste
 	if err != nil {
 		return "", errors.Wrapf(err, "failed to create file %s", filePath)
 	}
+	err = f.Chmod(0600)
+	if err != nil {
+		return "", errors.Wrapf(err, "failed to chmod file %s", filePath)
+	}
 
 	log.V(4).Info("Writing kubeconfig to file", "cluster", cluster.Name)
 	_, err = f.WriteString(kubeconfig)
