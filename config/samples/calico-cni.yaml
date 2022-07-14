@@ -16,7 +16,18 @@ spec:
       installation.calicoNetwork.ipPools[$i].cidr: "{{ $cidr }}"
       installation.calicoNetwork.ipPools[$i].encapsulation: "VXLAN"
     {{end}}
-  valuesB:
+  valuesB: |
+    installation:
+      cni:
+        type: Calico
+      calicoNetwork:
+        bgp: Disabled
+        ipPools:
+        {{range $i, $cidr := .Cluster.Spec.ClusterNetwork.Pods.CIDRBlocks }}
+          - cidr: $cidr
+            encapsulation: VXLAN
+        {{end}}
+  valuesC:
     installation.cni.type: "Calico"
     installation.calicoNetwork.bgp: "Disabled"
     installation.calicoNetwork.ipPools: |
