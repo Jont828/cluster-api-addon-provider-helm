@@ -129,7 +129,8 @@ func InstallHelmRelease(ctx context.Context, kubeconfig string, spec addonsv1bet
 	installClient := helmAction.NewInstall(actionConfig)
 	installClient.RepoURL = spec.RepoURL
 	installClient.Version = spec.Version
-	installClient.Namespace = "default"
+	installClient.Namespace = spec.Namespace
+	installClient.CreateNamespace = true
 
 	if spec.ReleaseName == "" {
 		installClient.GenerateName = true
@@ -181,7 +182,7 @@ func UpgradeHelmReleaseIfChanged(ctx context.Context, kubeconfig string, spec ad
 	upgradeClient := helmAction.NewUpgrade(actionConfig)
 	upgradeClient.RepoURL = spec.RepoURL
 	upgradeClient.Version = spec.Version
-	upgradeClient.Namespace = "default"
+	upgradeClient.Namespace = spec.Namespace
 	log.V(2).Info("Locating chart...")
 	cp, err := upgradeClient.ChartPathOptions.LocateChart(spec.ChartName, settings)
 	if err != nil {
