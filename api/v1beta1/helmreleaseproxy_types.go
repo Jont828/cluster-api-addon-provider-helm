@@ -49,10 +49,23 @@ type HelmReleaseProxySpec struct {
 	// +optional
 	Namespace string `json:"namespace,omitempty"`
 
-	// Values is an inline YAML representing the values for the Helm chart. This YAML is the result of the rendered
-	// Go templating with the values from the referenced workload Cluster.
+	// SetValues is a map of key/value pairs specifying values to be passed to the Helm chart. The map key is the full path
+	// to the field, and the map value is the value to set. The map value will include the result of the rendered Go templating
+	// using values from the selected workload Cluster. Values set in this field will have the highest order of precedence.
+	// +optional
+	SetValues map[string]string `json:"setValues,omitempty"`
+
+	// Values is an inline YAML representing the values for the Helm chart. This YAML will include the result of the rendered Go templating
+	// using values from the selected workload Cluster. Values set in this field will be overwritten by values set in SetValues.
 	// +optional
 	Values string `json:"values,omitempty"`
+
+	// ValueFiles is a list of YAML files containing values to be passed to the Helm chart. Each file can be specified by
+	// a file path or by an absolute URL. These YAML files will include the result of the rendered Go templating using
+	// values from the selected workload Cluster. Values set in this field will be overwritten by values set in
+	// SetValues and Values.
+	// +optional
+	ValueFiles []string `json:"valueFiles,omitempty"`
 }
 
 // HelmReleaseProxyStatus defines the observed state of HelmReleaseProxy.
