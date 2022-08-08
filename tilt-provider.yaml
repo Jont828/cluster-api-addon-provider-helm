@@ -1,4 +1,4 @@
-name: addon-helm
+name: capdh
 config:
   image: jont828/cluster-addon-provider-helm:latest
   live_reload_deps:
@@ -8,5 +8,5 @@ config:
     - api
     - controllers
     - internal
-  label: ClusterAddonProviderHelm
-  manager_name: capi-addon-controller-manager
+  label: CAdPH
+  manager_name: cadph-controller-manager
