@@ -1,4 +1,4 @@
-name: capdh
+name: helm-addons
 config:
   image: jont828/cluster-addon-provider-helm:latest
   live_reload_deps:
