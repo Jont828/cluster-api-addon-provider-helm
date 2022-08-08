@@ -1,6 +1,6 @@
-name: helm-addons
+name: helm
 config:
-  image: jont828/cluster-addon-provider-helm:latest
+  image: jont828/cluster-api-addon-provider-helm:latest
   live_reload_deps:
     - main.go
     - go.mod
@@ -8,5 +8,5 @@ config:
     - api
     - controllers
     - internal
-  label: CAdPH
-  manager_name: cadph-controller-manager
+  label: CAAPH
+  manager_name: caaph-controller-manager
