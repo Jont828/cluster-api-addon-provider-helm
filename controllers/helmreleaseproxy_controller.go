@@ -139,6 +139,7 @@ func (r *HelmReleaseProxyReconciler) Reconcile(ctx context.Context, req ctrl.Req
 
 					return ctrl.Result{}, wrappedErr
 				}
+				conditions.MarkTrue(helmReleaseProxy, addonsv1beta1.ClusterAvailableCondition)
 
 				if err := r.reconcileDelete(ctx, helmReleaseProxy, kubeconfig); err != nil {
 					// if fail to delete the external dependency here, return with error
@@ -149,6 +150,7 @@ func (r *HelmReleaseProxyReconciler) Reconcile(ctx context.Context, req ctrl.Req
 			} else if apierrors.IsNotFound(err) {
 				// Cluster is gone, so we should remove our finalizer from the list and delete
 				log.V(2).Info("Cluster not found, no need to delete external dependency", "cluster", cluster.Name)
+				// TODO: should we set a condition here?
 			} else {
 				wrappedErr := errors.Wrapf(err, "failed to get cluster %s/%s", clusterKey.Namespace, clusterKey.Name)
 				helmReleaseProxy.SetError(wrappedErr)
@@ -187,6 +189,7 @@ func (r *HelmReleaseProxyReconciler) Reconcile(ctx context.Context, req ctrl.Req
 
 		return ctrl.Result{}, wrappedErr
 	}
+	conditions.MarkTrue(helmReleaseProxy, addonsv1beta1.ClusterAvailableCondition)
 
 	log.V(2).Info("Reconciling HelmReleaseProxy", "releaseProxyName", helmReleaseProxy.Name)
 	err = r.reconcileNormal(ctx, helmReleaseProxy, kubeconfig)
@@ -246,8 +249,12 @@ func (r *HelmReleaseProxyReconciler) reconcileDelete(ctx context.Context, helmRe
 
 		if err == helmDriver.ErrReleaseNotFound {
 			log.V(2).Info(fmt.Sprintf("Release '%s' not found on cluster %s, nothing to do for uninstall", helmReleaseProxy.Spec.ReleaseName, helmReleaseProxy.Spec.ClusterRef.Name))
+			conditions.MarkFalse(helmReleaseProxy, addonsv1beta1.HelmReleaseReadyCondition, addonsv1beta1.HelmReleaseDeletedReason, clusterv1.ConditionSeverityInfo, "")
+
 			return nil
 		}
+
+		conditions.MarkFalse(helmReleaseProxy, addonsv1beta1.HelmReleaseReadyCondition, addonsv1beta1.HelmReleaseGetFailedReason, clusterv1.ConditionSeverityError, err.Error())
 
 		return err
 	}
@@ -257,11 +264,12 @@ func (r *HelmReleaseProxyReconciler) reconcileDelete(ctx context.Context, helmRe
 	response, err := internal.UninstallHelmRelease(ctx, kubeconfig, helmReleaseProxy.Spec)
 	if err != nil {
 		log.V(2).Info("Error uninstalling chart with Helm:", err)
+		conditions.MarkFalse(helmReleaseProxy, addonsv1beta1.HelmReleaseReadyCondition, addonsv1beta1.HelmReleaseDeletionFailedReason, clusterv1.ConditionSeverityError, err.Error())
 		return errors.Wrapf(err, "error uninstalling chart with Helm on cluster %s", helmReleaseProxy.Spec.ClusterRef.Name)
 	}
 
 	log.V(2).Info((fmt.Sprintf("Chart '%s' successfully uninstalled on cluster %s", helmReleaseProxy.Spec.ChartName, helmReleaseProxy.Spec.ClusterRef.Name)))
-
+	conditions.MarkFalse(helmReleaseProxy, addonsv1beta1.HelmReleaseReadyCondition, addonsv1beta1.HelmReleaseDeletedReason, clusterv1.ConditionSeverityInfo, "")
 	if response != nil && response.Info != "" {
 		log.V(2).Info(fmt.Sprintf("Response is %s", response.Info))
 	}
@@ -273,7 +281,8 @@ func patchHelmReleaseProxy(ctx context.Context, patchHelper *patch.Helper, helmR
 	// TODO: Update the readyCondition by summarizing the state of other conditions when they are implemented.
 	conditions.SetSummary(helmReleaseProxy,
 		conditions.WithConditions(
-			clusterv1.ReadyCondition,
+			addonsv1beta1.HelmReleaseReadyCondition,
+			addonsv1beta1.ClusterAvailableCondition,
 		),
 	)
 
@@ -283,6 +292,8 @@ func patchHelmReleaseProxy(ctx context.Context, patchHelper *patch.Helper, helmR
 		helmReleaseProxy,
 		patch.WithOwnedConditions{Conditions: []clusterv1.ConditionType{
 			clusterv1.ReadyCondition,
+			addonsv1beta1.HelmReleaseReadyCondition,
+			addonsv1beta1.ClusterAvailableCondition,
 		}},
 		patch.WithStatusObservedGeneration{},
 	)
