@@ -196,7 +196,7 @@ func (r *HelmChartProxyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 
 	log.V(2).Info("Reconciling HelmChartProxy", "randomName", helmChartProxy.Name)
 	err = r.reconcileNormal(ctx, helmChartProxy, clusterList.Items, releaseList.Items)
-	conditions.MarkTrue(helmChartProxy, addonsv1beta1.HelmReleaseProxiesReadyCondition)
+	conditions.MarkTrue(helmChartProxy, addonsv1beta1.HelmReleaseProxySpecsReadyCondition)
 
 	helmChartProxy.SetError(err)
 	return ctrl.Result{}, err
@@ -480,7 +480,7 @@ func patchHelmChartProxy(ctx context.Context, patchHelper *patch.Helper, helmCha
 	// TODO: Update the readyCondition by summarizing the state of other conditions when they are implemented.
 	conditions.SetSummary(helmChartProxy,
 		conditions.WithConditions(
-			addonsv1beta1.HelmReleaseProxiesReadyCondition,
+			addonsv1beta1.HelmReleaseProxySpecsReadyCondition,
 			addonsv1beta1.ClusterSelectionSucceededCondition,
 		),
 	)
@@ -491,7 +491,7 @@ func patchHelmChartProxy(ctx context.Context, patchHelper *patch.Helper, helmCha
 		helmChartProxy,
 		patch.WithOwnedConditions{Conditions: []clusterv1.ConditionType{
 			clusterv1.ReadyCondition,
-			addonsv1beta1.HelmReleaseProxiesReadyCondition,
+			addonsv1beta1.HelmReleaseProxySpecsReadyCondition,
 			addonsv1beta1.ClusterSelectionSucceededCondition,
 		}},
 		patch.WithStatusObservedGeneration{},

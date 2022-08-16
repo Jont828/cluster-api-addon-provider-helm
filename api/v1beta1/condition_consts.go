@@ -23,8 +23,11 @@ const (
 	// ReconciliationErrorReason is used to indicate there was some error in reconciliation.
 	ReconciliationErrorReason = "ReconciliationError"
 
-	// HelmReleaseProxiesReadyCondition...
-	HelmReleaseProxiesReadyCondition clusterv1.ConditionType = "HelmReleaseProxiesReady"
+	// HelmReleaseProxySpecsReadyCondition...
+	HelmReleaseProxySpecsReadyCondition clusterv1.ConditionType = "HelmReleaseProxySpecsReady"
+
+	// // HelmReleaseProxiesReadyCondition...
+	// HelmReleaseProxiesReadyCondition clusterv1.ConditionType = "HelmReleaseProxiesReady"
 
 	// HelmReleaseProxyCreationFailedReason...
 	HelmReleaseProxyCreationFailedReason = "HelmReleaseProxyCreationFailed"
