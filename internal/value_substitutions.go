@@ -24,9 +24,9 @@ import (
 
 	"github.com/Masterminds/sprig"
 	"github.com/pkg/errors"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/types"
+	corev1 "k8s.io/api/core/v1"
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
+	"sigs.k8s.io/cluster-api/controllers/external"
 	kcpv1 "sigs.k8s.io/cluster-api/controlplane/kubeadm/api/v1beta1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	ctrlClient "sigs.k8s.io/controller-runtime/pkg/client"
@@ -34,81 +34,49 @@ import (
 	addonsv1alpha1 "cluster-api-addon-provider-helm/api/v1alpha1"
 )
 
-func initializeBuiltins(ctx context.Context, c ctrlClient.Client, spec addonsv1alpha1.HelmChartProxySpec, cluster *clusterv1.Cluster) (*BuiltinTypes, error) {
+func initializeBuiltins(ctx context.Context, c ctrlClient.Client, references []corev1.ObjectReference, spec addonsv1alpha1.HelmChartProxySpec, cluster *clusterv1.Cluster) (map[string]interface{}, error) {
 	log := ctrl.LoggerFrom(ctx)
 
-	kubeadmControlPlane := &kcpv1.KubeadmControlPlane{}
-	key := types.NamespacedName{
-		Name:      cluster.Spec.ControlPlaneRef.Name,
-		Namespace: cluster.Spec.ControlPlaneRef.Namespace,
-	}
-	err := c.Get(ctx, key, kubeadmControlPlane)
-	if err != nil {
-		if apierrors.IsNotFound(err) {
-			log.V(2).Info("kubeadm control plane not found", "cluster", cluster.Name, "namespace", cluster.Namespace)
-		} else {
-			return nil, errors.Wrapf(err, "failed to get kubeadm control plane %s", key)
+	// ref := corev1.ObjectReference{
+	// 	APIVersion: cluster.APIVersion,
+	// 	Kind:       cluster.Kind,
+	// 	Namespace:  cluster.Namespace,
+	// 	Name:       cluster.Name,
+	// }
+
+	valueLookUp := make(map[string]interface{})
+
+	for _, ref := range references {
+		log.V(2).Info("Getting object for reference", "ref", ref)
+		obj, err := external.Get(ctx, c, &ref, cluster.Namespace)
+		if err != nil {
+			return nil, errors.Wrapf(err, "failed to get object %s", ref.Name)
 		}
+		valueLookUp[ref.Kind] = obj.Object
 	}
-
-	builtInTypes := BuiltinTypes{
-		Cluster:            cluster,
-		ControlPlane:       kubeadmControlPlane,
-		MachineDeployments: map[string]clusterv1.MachineDeployment{},
-		MachineSets:        map[string]clusterv1.MachineSet{},
-		Machines:           map[string]clusterv1.Machine{},
-	}
-
-	// Comment out the custom selectors until we can define a use case
-	// for key, selectorSpec := range spec.CustomSelectors {
-	// 	labels := selectorSpec.Selector.MatchLabels
-	// 	labels[clusterv1.ClusterLabelName] = cluster.Name
-	// 	switch selectorSpec.Kind {
-	// 	case "MachineDeployment":
-	// 		machineDeployments := &clusterv1.MachineDeploymentList{}
-	// 		if err := c.List(ctx, machineDeployments, ctrlClient.MatchingLabels(labels)); err != nil {
-	// 			return nil, errors.Wrapf(err, "failed to list machine deployments with selector %v", selectorSpec.Selector.MatchLabels)
-	// 		}
-	// 		if len(machineDeployments.Items) == 0 {
-	// 			return nil, errors.Errorf("no machine deployments found with selector %v", selectorSpec.Selector.MatchLabels)
-	// 		}
-	// 		if len(machineDeployments.Items) > 1 {
-	// 			return nil, errors.Errorf("multiple machine deployments found with selector %v", selectorSpec.Selector.MatchLabels)
-	// 		}
-	// 		builtInTypes.MachineDeployments[key] = machineDeployments.Items[0]
-	// 		break
-	// 	case "MachineSet":
-	// 		machineSets := &clusterv1.MachineSetList{}
-	// 		if err := c.List(ctx, machineSets, ctrlClient.MatchingLabels(labels)); err != nil {
-	// 			return nil, errors.Wrapf(err, "failed to list machine sets with selector %v", selectorSpec.Selector.MatchLabels)
-	// 		}
-	// 		if len(machineSets.Items) == 0 {
-	// 			return nil, errors.Errorf("no machine sets found with selector %v", selectorSpec.Selector.MatchLabels)
-	// 		}
-	// 		if len(machineSets.Items) > 1 {
-	// 			return nil, errors.Errorf("multiple machine sets found with selector %v", selectorSpec.Selector.MatchLabels)
-	// 		}
-	// 		builtInTypes.MachineSets[key] = machineSets.Items[0]
-	// 		break
-	// 	case "Machine":
-	// 		machines := &clusterv1.MachineList{}
-	// 		if err := c.List(ctx, machines, ctrlClient.MatchingLabels(labels)); err != nil {
-	// 			return nil, errors.Wrapf(err, "failed to list machines with selector %v", selectorSpec.Selector.MatchLabels)
-	// 		}
-	// 		if len(machines.Items) == 0 {
-	// 			return nil, errors.Errorf("no machines found with selector %v", selectorSpec.Selector.MatchLabels)
-	// 		}
-	// 		if len(machines.Items) > 1 {
-	// 			return nil, errors.Errorf("multiple machines found with selector %v", selectorSpec.Selector.MatchLabels)
-	// 		}
-	// 		builtInTypes.Machines[key] = machines.Items[0]
-	// 		break
-	// 	default:
-	// 		return nil, errors.Errorf("unsupported selector kind %s", selectorSpec.Kind)
+	// kubeadmControlPlane := &kcpv1.KubeadmControlPlane{}
+	// key := types.NamespacedName{
+	// 	Name:      cluster.Spec.ControlPlaneRef.Name,
+	// 	Namespace: cluster.Spec.ControlPlaneRef.Namespace,
+	// }
+	// err := c.Get(ctx, key, kubeadmControlPlane)
+	// if err != nil {
+	// 	if apierrors.IsNotFound(err) {
+	// 		log.V(2).Info("kubeadm control plane not found", "cluster", cluster.Name, "namespace", cluster.Namespace)
+	// 	} else {
+	// 		return nil, errors.Wrapf(err, "failed to get kubeadm control plane %s", key)
 	// 	}
 	// }
 
-	return &builtInTypes, nil
+	// builtInTypes := BuiltinTypes{
+	// 	Cluster:            cluster,
+	// 	ControlPlane:       kubeadmControlPlane,
+	// 	MachineDeployments: map[string]clusterv1.MachineDeployment{},
+	// 	MachineSets:        map[string]clusterv1.MachineSet{},
+	// 	Machines:           map[string]clusterv1.Machine{},
+	// }
+
+	return valueLookUp, nil
 }
 
 type BuiltinTypes struct {
@@ -119,11 +87,28 @@ type BuiltinTypes struct {
 	Machines           map[string]clusterv1.Machine
 }
 
+/*
+	1. Validate that the JSON path template will work on an unstructured Cluster object.
+	2. Test to see if we can define a function .GetByReference that wraps external.Get() and if we can call it from the template like so:
+		{{ (call .GetByReference (.Cluster.infrastructureRef)).metadata.name }}
+	3. Look into referencing an object by a unique type, i.e. AzureCluster since there can only be one
+	4. Look into defining provider-generic keys like InfraCluster that get loaded with JSON from external.Get()
+*/
+
 func ParseValues(ctx context.Context, c ctrlClient.Client, spec addonsv1alpha1.HelmChartProxySpec, cluster *clusterv1.Cluster) (string, error) {
 	log := ctrl.LoggerFrom(ctx)
 
 	log.V(2).Info("Rendering templating in values:", "values", spec.ValuesTemplate)
-	builtin, err := initializeBuiltins(ctx, c, spec, cluster)
+	references := []corev1.ObjectReference{
+		{
+			APIVersion: cluster.APIVersion,
+			Kind:       cluster.Kind,
+			Namespace:  cluster.Namespace,
+			Name:       cluster.Name,
+		},
+	}
+
+	valueLookUp, err := initializeBuiltins(ctx, c, references, spec, cluster)
 	if err != nil {
 		return "", err
 	}
@@ -136,7 +121,7 @@ func ParseValues(ctx context.Context, c ctrlClient.Client, spec addonsv1alpha1.H
 	}
 	var buffer bytes.Buffer
 
-	if err := tmpl.Execute(&buffer, builtin); err != nil {
+	if err := tmpl.Execute(&buffer, valueLookUp); err != nil {
 		return "", errors.Wrapf(err, "error executing template string '%s' on cluster '%s'", spec.ValuesTemplate, cluster.GetName())
 	}
 	expandedTemplate := buffer.String()
