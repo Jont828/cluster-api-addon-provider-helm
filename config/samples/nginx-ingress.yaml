@@ -10,6 +10,6 @@ spec:
   chartName: nginx-ingress
   valuesTemplate: |
     controller:
-      name: "{{ .Cluster.metadata.name }}-nginx"
+      name: "{{ .ControlPlane.metadata.name }}-nginx"
       nginxStatus:
         allowCidrs: 127.0.0.1,::1,{{ index .Cluster.spec.clusterNetwork.pods.cidrBlocks 0 }}

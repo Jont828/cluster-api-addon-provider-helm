@@ -34,47 +34,19 @@ import (
 	addonsv1alpha1 "cluster-api-addon-provider-helm/api/v1alpha1"
 )
 
-func initializeBuiltins(ctx context.Context, c ctrlClient.Client, references []corev1.ObjectReference, spec addonsv1alpha1.HelmChartProxySpec, cluster *clusterv1.Cluster) (map[string]interface{}, error) {
+func initializeBuiltins(ctx context.Context, c ctrlClient.Client, referenceMap map[string]corev1.ObjectReference, spec addonsv1alpha1.HelmChartProxySpec, cluster *clusterv1.Cluster) (map[string]interface{}, error) {
 	log := ctrl.LoggerFrom(ctx)
-
-	// ref := corev1.ObjectReference{
-	// 	APIVersion: cluster.APIVersion,
-	// 	Kind:       cluster.Kind,
-	// 	Namespace:  cluster.Namespace,
-	// 	Name:       cluster.Name,
-	// }
 
 	valueLookUp := make(map[string]interface{})
 
-	for _, ref := range references {
+	for name, ref := range referenceMap {
 		log.V(2).Info("Getting object for reference", "ref", ref)
 		obj, err := external.Get(ctx, c, &ref, cluster.Namespace)
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to get object %s", ref.Name)
 		}
-		valueLookUp[ref.Kind] = obj.Object
+		valueLookUp[name] = obj.Object
 	}
-	// kubeadmControlPlane := &kcpv1.KubeadmControlPlane{}
-	// key := types.NamespacedName{
-	// 	Name:      cluster.Spec.ControlPlaneRef.Name,
-	// 	Namespace: cluster.Spec.ControlPlaneRef.Namespace,
-	// }
-	// err := c.Get(ctx, key, kubeadmControlPlane)
-	// if err != nil {
-	// 	if apierrors.IsNotFound(err) {
-	// 		log.V(2).Info("kubeadm control plane not found", "cluster", cluster.Name, "namespace", cluster.Namespace)
-	// 	} else {
-	// 		return nil, errors.Wrapf(err, "failed to get kubeadm control plane %s", key)
-	// 	}
-	// }
-
-	// builtInTypes := BuiltinTypes{
-	// 	Cluster:            cluster,
-	// 	ControlPlane:       kubeadmControlPlane,
-	// 	MachineDeployments: map[string]clusterv1.MachineDeployment{},
-	// 	MachineSets:        map[string]clusterv1.MachineSet{},
-	// 	Machines:           map[string]clusterv1.Machine{},
-	// }
 
 	return valueLookUp, nil
 }
@@ -99,14 +71,22 @@ func ParseValues(ctx context.Context, c ctrlClient.Client, spec addonsv1alpha1.H
 	log := ctrl.LoggerFrom(ctx)
 
 	log.V(2).Info("Rendering templating in values:", "values", spec.ValuesTemplate)
-	references := []corev1.ObjectReference{
-		{
+	references := map[string]corev1.ObjectReference{
+		"Cluster": {
 			APIVersion: cluster.APIVersion,
 			Kind:       cluster.Kind,
 			Namespace:  cluster.Namespace,
 			Name:       cluster.Name,
 		},
 	}
+
+	if cluster.Spec.ControlPlaneRef != nil {
+		references["ControlPlane"] = *cluster.Spec.ControlPlaneRef
+	}
+	if cluster.Spec.InfrastructureRef != nil {
+		references["InfraCluster"] = *cluster.Spec.InfrastructureRef
+	}
+	// TODO: would we want to add ControlPlaneMachineTemplate?
 
 	valueLookUp, err := initializeBuiltins(ctx, c, references, spec, cluster)
 	if err != nil {
