@@ -59,14 +59,6 @@ type BuiltinTypes struct {
 	Machines           map[string]clusterv1.Machine
 }
 
-/*
-	1. Validate that the JSON path template will work on an unstructured Cluster object.
-	2. Test to see if we can define a function .GetByReference that wraps external.Get() and if we can call it from the template like so:
-		{{ (call .GetByReference (.Cluster.infrastructureRef)).metadata.name }}
-	3. Look into referencing an object by a unique type, i.e. AzureCluster since there can only be one
-	4. Look into defining provider-generic keys like InfraCluster that get loaded with JSON from external.Get()
-*/
-
 func ParseValues(ctx context.Context, c ctrlClient.Client, spec addonsv1alpha1.HelmChartProxySpec, cluster *clusterv1.Cluster) (string, error) {
 	log := ctrl.LoggerFrom(ctx)
 
