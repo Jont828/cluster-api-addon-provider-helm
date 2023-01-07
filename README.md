@@ -17,6 +17,7 @@ In particular, this project is a prototype following the [Cluster API Addon Orch
 - To expect users to use a specific package management tool.
 - To implement a solution for installing add-ons on the management cluster itself.
 
+
 ### Quick start
 
 See the [quick start guide](docs/quick-start.md) for instructions on how to get started with CAAPH.
