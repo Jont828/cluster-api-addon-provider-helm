@@ -1,5 +1,8 @@
+//go:build tools
+// +build tools
+
 /*
-Copyright The Kubernetes Authors.
+Copyright 2020 The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -14,3 +17,10 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+// This package imports things required by build scripts, to force `go mod` to see them as dependencies
+package tools
+
+import (
+	_ "github.com/hashicorp/go-multierror"
+	_ "sigs.k8s.io/cluster-api/hack/tools"
+)

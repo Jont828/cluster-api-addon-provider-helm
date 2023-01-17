@@ -132,8 +132,12 @@ func GetClusterKubeconfig(ctx context.Context, cluster *clusterv1.Cluster) (stri
 	}
 
 	c, err := client.New("")
-	c.Init(client.InitOptions{Kubeconfig: client.Kubeconfig(*managementKubeconfig)})
+	if err != nil {
+		return "", err
+	}
 
+	// TODO: Remove this, we don't want to reinstall CAPI on the management cluster.
+	_, err = c.Init(client.InitOptions{Kubeconfig: client.Kubeconfig(*managementKubeconfig)})
 	if err != nil {
 		return "", err
 	}
