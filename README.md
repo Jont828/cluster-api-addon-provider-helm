@@ -1,5 +1,7 @@
 # Cluster API Addon Provider for Helm (CAAPH)
 
+> Note: This repository has graduated to be an official kubernetes-sig project.  Please go to the new permanent home instead at: [https://github.com/kubernetes-sigs/cluster-api-addon-provider-helm](https://github.com/kubernetes-sigs/cluster-api-addon-provider-helm)
+
 Cluster API Add-on Provider for Helm is a Cluster API provider that extends the functionality of Cluster API by providing a solution for managing the installation, configuration, upgrade, and deletion of cluster add-ons using Helm charts. It is implemented using Kubernetes controllers watching with two custom resources: `HelmChartProxy` and `HelmReleaseProxy`.
 
 In particular, this project is a prototype following the [Cluster API Addon Orchestration Proposal](https://github.com/kubernetes-sigs/cluster-api/pull/6905). As such, it is a work in progress at this stage and may change at any time.
